@@ -1,0 +1,39 @@
+09.06.2026
+Кол-во часов: 8
+Выполненные работы: изучена теория, 
+выполнена установка mysql_connector_python через pip install mysql_connector_python-9.7.0-py2.py3-none-any.whl (т. к. pip install mysql-connector-python не хотел работать);
+написан код, в котором:
+подключена база данных для редактирования через tkinter,
+выбрана таблица Students для изменения данных,
+сделан интерфейс, отображающий: таблицу, данные из таблицы,
+выполняющий функции: добавление, обновление, удаление, очистка записей
+
+1. Зачем нужен параметр auto_increment в конфигурации столбца?
+Для автоматического наращивания значения (1-2-3...)
+
+2. Что произойдёт, если в INSERT не указать значения для NOT NULL полей?
+Запись не будет добавлена в таблицу
+
+3. Как в Tkinter получить выделенную строку из Treeview?
+    def on_select(self, event):
+        """При выборе строки в таблице — заполняем поля ввода"""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        values = self.tree.item(selected[0])['values']
+        
+        # Заполняем поля ввода
+        for i, col in enumerate(self.columns):
+            col_name = col['name']
+            if col_name in self.entries:
+                self.entries[col_name].delete(0, tk.END)
+                self.entries[col_name].insert(0, str(values[i]) if values[i] is not None else "")
+
+4. Почему мы не даём пользователю редактировать поле с первичным ключом?
+Причины: нарушение целостности данных, проблемы с уникальностью, технические сложности реализации, потеря истории и отслеживаемости
+
+5. Как защитить приложение от SQL-инъекций? (подсказка: используем %s и параметры)
+        columns_names = list(values.keys())
+        placeholders = ", ".join(["%s"] * len(columns_names))
+        query = f"INSERT INTO {self.table_name} ({', '.join(columns_names)}) VALUES ({placeholders})"

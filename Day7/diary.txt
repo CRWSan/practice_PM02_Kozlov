@@ -1,0 +1,67 @@
+10.06.2026
+Кол-во часов: 8
+Выполненные работы: реализована программа, в которой есть: авторизация пользователей, доступ по ролям, защита от ботов;
+составлена техническая документация
+
+Контрольные вопросы (для самопроверки)
+
+1. Как в Flask создать сессию и проверить её?
+from flask import session
+
+# Сохранить данные в сессию
+session['user_id'] = 1
+session['role'] = 'admin'
+
+# Проверить, авторизован ли пользователь
+if 'user_id' in session:
+    print(f"Пользователь {session['user_id']} авторизован")
+
+# Удалить сессию (выход)
+session.clear()
+
+
+2. Почему нужно хешировать пароли? Как это сделать с помощью bcrypt?
+Хеширование позволяет обезопасить личные данные
+
+import bcrypt
+
+# Хеширование пароля при регистрации
+password = "admin123"
+hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+# Сохраняем hashed в БД (как строку через .decode('utf-8'))
+
+# Проверка пароля при входе
+if bcrypt.checkpw(password.encode('utf-8'), hashed_from_db.encode('utf-8')):
+    print("Пароль верный!")
+
+3. Как работает декоратор `@login_required`?
+def login_required(f):
+    """Декоратор: требует авторизации"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session: #если id не в сессии
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+4. Как реализована капча в проекте? Можно ли её обойти?
+    num1 = random.randint(1, 10)
+    num2 = random.randint(1, 10)
+    session['captcha_result'] = num1 + num2
+    
+    return render_template('login.html', num1=num1, num2=num2)
+
+
+5. Какие права есть у администратора? У работника?
+Права администратора: screenshots\dashboard_admin
+Права работника: screenshots\dashboard_worker
+
+6. Как защитить маршрут `/admin/users` от доступа обычного пользователя?
+%s
+
+7. Какие команды нужно выполнить для запуска проекта на новом компьютере?
+документ: instruction.txt
+
+8. Что такое `requirements.txt` и как его создать?
+Требования для выполнения работы. Создать текстовый документ - вписать данные

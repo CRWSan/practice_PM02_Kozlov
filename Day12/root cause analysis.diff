@@ -1,0 +1,20 @@
+# 1. Исправление ошибки изменения множества
+- for element in current_set:
+-     if element % 2 == 0:
+-         item['set'].remove(element)
++ filtered_set = {elem for elem in original_set if elem % 2 != 0}
+
+# 2. Исправление логической ошибки
+- return union / intersection
++ return intersection / union
+
+# 3. Исправление утечки памяти
+- CACHE[f"{hash(frozenset(set_a))}_{hash(frozenset(set_b))}"] = set_a | set_b
++ CACHE.set(cache_key, union_result)  # с ограничением размера
+
+# 4. Исправление рекурсии
+- if depth == 5:
+-     recursive_process(data, depth + 1)
++ if depth > max_depth:
++     print(f"Достигнута максимальная глубина рекурсии ({max_depth}), остановка")
++     return

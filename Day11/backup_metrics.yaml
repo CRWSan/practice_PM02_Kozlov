@@ -1,0 +1,46 @@
+metrics:
+  - name: backup_last_success_timestamp_seconds
+    help: "Время последнего успешного бэкапа"
+    type: gauge
+  
+  - name: backup_status
+    help: "Статус бэкапа (1 - success, 0 - fail)"
+    type: gauge
+  
+  - name: backup_duration_seconds
+    help: "Длительность выполнения бэкапа"
+    type: histogram
+
+  - name: backup_size_bytes
+    help: "Размер бэкапа в байтах"
+    type: gauge
+    
+groups:
+  - name: backup_alerts
+    rules:
+      # 1. Провал бэкапа
+      - alert: BackupJobFailed
+        expr: backup_status == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Бэкап {{ $labels.job_name }} провалился"
+          
+      # 2. Бэкап слишком старый (превышает RPO в 1.5 раза)
+      - alert: BackupTooOld
+        expr: (time() - backup_last_success_timestamp_seconds) > 900  # 15 минут * 1.5 = 22.5 мин
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Бэкап старше допустимого RPO"
+          
+      # 3. Недостаточно места на диске
+      - alert: DiskSpaceNearFull
+        expr: (node_filesystem_avail_bytes{mountpoint="/backup"} / node_filesystem_size_bytes{mountpoint="/backup"}) < 0.15
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "На диске бэкапов осталось < 15%"

@@ -1,0 +1,1 @@
+Запуск тестов: pytest tests/ -v --cov=src --cov-report=html

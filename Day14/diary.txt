@@ -1,0 +1,546 @@
+22.06.2026
+Кол-во часов: 6
+Выполненные работы: изучена теория, устный ответ на вопросы (для допуска к практике), изучены этапы выполнения, вариант выполнения и детализация работы, написан код (с ошибками), исправление кода, выполнение тестов
+
+Контрольные вопросы для защиты
+
+B1. Чем отличается адаптер от репозитория в контексте сервисного слоя?
+Репозиторий (Repository):
+Абстракция над хранилищем данных (БД, файлы, кеш);
+Предоставляет CRUD-операции и поиск;
+Работает с доменными объектами;
+Скрывает детали реализации хранения
+
+Адаптер (Adapter):
+Преобразует один интерфейс в другой;
+Адаптирует внешние системы к ожидаемому интерфейсу;
+Может выполнять трансформацию данных, протоколов;
+Часто используется для интеграции с внешними API
+
+B2. Как реализовать транзакционность, если репозитории используют разные хранилища (SQL + NoSQL)?
+
+Решение: Паттерн "Сага" (Saga Pattern)
+
+class DistributedTransactionManager:
+    def __init__(self):
+        self._participants = []
+        self._commit_log = []
+    
+    def register(self, participant):
+        self._participants.append(participant)
+    
+    def execute(self, operations):
+        try:
+            # Фаза 1: Подготовка (Prepare)
+            for participant in self._participants:
+                participant.prepare()
+                self._commit_log.append(participant)
+            
+            # Фаза 2: Фиксация (Commit)
+            for participant in self._participants:
+                participant.commit()
+                
+        except Exception as e:
+            # Откат (Rollback)
+            for participant in reversed(self._commit_log):
+                participant.rollback()
+            raise
+
+B3. Как внедрить кеширование в сервис, не нарушая принцип единственной ответственности?
+
+Решение: Паттерн "Декоратор" (Decorator Pattern)
+
+from functools import wraps
+import json
+from typing import Any
+
+class CacheDecorator:
+    """Декоратор для добавления кеширования без изменения сервиса"""
+    
+    def __init__(self, cache_client, ttl=300):
+        self._cache = cache_client
+        self._ttl = ttl
+    
+    def cache_result(self, key_prefix: str):
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                # Формирование ключа
+                cache_key = f"{key_prefix}:{self._make_key(*args, **kwargs)}"
+                
+                # Попытка получить из кеша
+                cached = self._cache.get(cache_key)
+                if cached is not None:
+                    return json.loads(cached)
+                
+                # Вызов оригинального метода
+                result = func(*args, **kwargs)
+                
+                # Сохранение в кеш
+                self._cache.setex(cache_key, self._ttl, json.dumps(result))
+                return result
+            return wrapper
+        return decorator
+    
+    def _make_key(self, *args, **kwargs):
+        return json.dumps([args, kwargs], sort_keys=True)
+
+class AutoparkServiceWithCache:
+    def __init__(self, service: AutoparkService, cache_decorator: CacheDecorator):
+        self._service = service
+        self._cache = cache_decorator
+    
+    @CacheDecorator.cache_result("vehicle")
+    def get_vehicle(self, vehicle_id: int) -> VehicleResponse:
+        # Делегирование оригинальному сервису
+        return self._service.get_vehicle(vehicle_id)
+
+B4. Какие инструменты Python помогают реализовать Dependency Injection (кроме ручного)?
+
+1. FastAPI Dependency Injection (встроенный)
+2. python-dependency-injector (популярный DI контейнер)
+3. django-injector (для Django)
+4. injector (общий DI фреймворк)
+
+B5. Почему в сервисном слое не рекомендуется использовать ORM-сущности напрямую (например, SQLAlchemy модели)?
+
+1. Нарушение Separation of Concerns
+
+Сервис знает о деталях ORM
+
+class BadService:
+    def get_vehicle(self, vehicle_id: int):
+        # Сервис работает с SQLAlchemy напрямую
+        session = Session()
+        vehicle = session.query(Vehicle).filter_by(id=vehicle_id).first()
+        return vehicle  # Возвращает ORM-объект
+
+2. Проблемы с сериализацией
+
+ORM-объект нельзя просто сериализовать в JSON
+
+vehicle = session.query(Vehicle).first()
+json.dumps(vehicle)
+
+3. Lazy Loading
+
+Опасность N+1 запросов
+
+vehicle = session.query(Vehicle).first()
+# При обращении к связанным данным - дополнительный запрос
+print(vehicle.driver.name)  # Новый SQL запрос!
+
+Правильный подход: Использование DTO
+
+# Сервис работает с DTO
+class VehicleDTO(BaseModel):
+    id: int
+    license_plate: str
+    brand: str
+    model: str
+    
+class GoodService:
+    def get_vehicle(self, vehicle_id: int) -> VehicleDTO:
+        # Репозиторий преобразует ORM → DTO
+        return self._vehicle_repo.get_by_id(vehicle_id)
+
+B6. Как протестировать сервис, если он вызывает внешний API (например, платёжную систему)?
+
+import pytest
+from unittest.mock import Mock, patch
+import requests
+
+class PaymentService:
+    def __init__(self, api_client):
+        self._api = api_client
+    
+    def process_payment(self, amount: Decimal, card_data: dict):
+        response = self._api.post('/charge', json={
+            'amount': str(amount),
+            'card': card_data
+        })
+        if response.status_code != 200:
+            raise PaymentError("Payment failed")
+        return response.json()
+
+class TestPaymentService:
+    def test_payment_success_with_mock(self):
+        # Создаем мок API клиента
+        mock_api = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'id': 'tx_123', 'status': 'success'}
+        mock_api.post.return_value = mock_response
+        
+        service = PaymentService(mock_api)
+        result = service.process_payment(Decimal('100'), {'number': '1234'})
+        
+        assert result['status'] == 'success'
+        mock_api.post.assert_called_once()
+    
+B7. В чём разница между валидацией на уровне DTO (схем) и валидацией в сервисе?
+
+Аспект			|DTO валидация					|Сервисная валидация
+----------------------------------------------------------------------------------------------------------------------
+Что проверяет		|Структуру данных, типы, форматы		|Бизнес-правила, состояние системы
+Зависимость		|Только от данных				|От состояния БД, других сервисов
+Когда происходит	|При создании DTO				|В процессе выполнения бизнес-операции
+Примеры			|Длина строки, диапазон чисел, формат email	|Проверка существования, статусов, доступности
+Ошибки			|ValidationError				|DomainError, BusinessRuleViolation
+
+B8. Как логировать ошибки так, чтобы сохранить контекст (user_id, заказ)?
+
+Структурированное логирование с контекстом
+
+import logging
+from logging.config import dictConfig
+import json
+from datetime import datetime
+from contextvars import ContextVar
+
+# Контекстные переменные для передачи данных в логи
+user_id_context: ContextVar[str] = ContextVar('user_id', default='anonymous')
+request_id_context: ContextVar[str] = ContextVar('request_id', default='unknown')
+
+class ContextualJSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_data = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'level': record.levelname,
+            'logger': record.name,
+            'message': record.getMessage(),
+            'user_id': user_id_context.get(),
+            'request_id': request_id_context.get(),
+        }
+        
+        # Добавление дополнительных полей
+        if hasattr(record, 'vehicle_id'):
+            log_data['vehicle_id'] = record.vehicle_id
+        if hasattr(record, 'trip_id'):
+            log_data['trip_id'] = record.trip_id
+        if hasattr(record, 'error_details'):
+            log_data['error_details'] = record.error_details
+        
+        # Добавление исключения
+        if record.exc_info:
+            log_data['exception'] = self.formatException(record.exc_info)
+        
+        return json.dumps(log_data) + '\n'
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class AutoparkService:
+    def start_trip(self, trip_data: TripCreate, user_id: str) -> TripResponse:
+        # Установка контекста
+        user_id_context.set(user_id)
+        
+        # Логирование с дополнительными полями
+        logger.info(
+            "Starting trip",
+            extra={
+                'vehicle_id': trip_data.vehicle_id,
+                'trip_data': trip_data.model_dump()
+            }
+        )
+        
+        try:
+            vehicle = self._vehicles.get_by_id(trip_data.vehicle_id)
+            if not vehicle:
+                logger.warning(
+                    "Vehicle not found",
+                    extra={'vehicle_id': trip_data.vehicle_id}
+                )
+                raise VehicleNotFoundError(trip_data.vehicle_id)
+            
+            # Логирование успешной операции
+            logger.info(
+                "Trip started successfully",
+                extra={
+                    'trip_id': trip.id,
+                    'vehicle_id': trip.vehicle_id,
+                    'user_id': user_id
+                }
+            )
+            return trip
+            
+        except DomainError as e:
+            # Логирование с контекстом ошибки
+            logger.error(
+                f"Trip start failed: {str(e)}",
+                extra={
+                    'error_type': type(e).__name__,
+                    'vehicle_id': trip_data.vehicle_id,
+                    'driver_id': trip_data.driver_id,
+                    'user_id': user_id,
+                    'error_details': str(e)
+                },
+                exc_info=True  # Добавляет traceback
+            )
+            raise
+
+B9. Как организовать «мягкое удаление» записей через сервисный слой?
+
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel
+
+# Модель с полями для мягкого удаления
+class SoftDeleteMixin(BaseModel):
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+
+class Vehicle(SoftDeleteMixin):
+    id: int
+    license_plate: str
+    brand: str
+    model: str
+
+# Репозиторий с поддержкой мягкого удаления
+class VehicleRepository(ABC):
+    @abstractmethod
+    def soft_delete(self, vehicle_id: int) -> bool:
+        """Мягкое удаление записи"""
+        pass
+    
+    @abstractmethod
+    def restore(self, vehicle_id: int) -> bool:
+        """Восстановление записи"""
+        pass
+    
+    @abstractmethod
+    def get_all(self, include_deleted: bool = False) -> List[VehicleResponse]:
+        """Получение всех записей с опцией включения удалённых"""
+        pass
+
+# Реализация In-Memory
+class InMemoryVehicleRepository(VehicleRepository):
+    def __init__(self):
+        self._vehicles: Dict[int, Dict[str, Any]] = {}
+        self._next_id = 1
+    
+    def soft_delete(self, vehicle_id: int) -> bool:
+        if vehicle_id not in self._vehicles:
+            return False
+        
+        self._vehicles[vehicle_id]['is_deleted'] = True
+        self._vehicles[vehicle_id]['deleted_at'] = datetime.now()
+        return True
+    
+    def restore(self, vehicle_id: int) -> bool:
+        if vehicle_id not in self._vehicles:
+            return False
+        
+        self._vehicles[vehicle_id]['is_deleted'] = False
+        self._vehicles[vehicle_id]['deleted_at'] = None
+        return True
+    
+    def get_all(self, include_deleted: bool = False) -> List[VehicleResponse]:
+        items = list(self._vehicles.values())
+        if not include_deleted:
+            items = [v for v in items if not v.get('is_deleted', False)]
+        return [self._to_response(item) for item in items]
+
+# Сервисный слой
+class AutoparkService:
+    def delete_vehicle(self, vehicle_id: int, permanent: bool = False) -> bool:
+        """Удаление ТС с опцией мягкого или жесткого удаления"""
+        
+        if not self._vehicles.exists(vehicle_id):
+            raise VehicleNotFoundError(vehicle_id)
+        
+        # Проверка активных поездок
+        trips = self._trips.get_by_vehicle(vehicle_id)
+        active_trips = [t for t in trips if not t.is_completed]
+        if active_trips:
+            raise BusinessRuleViolation(
+                f"Cannot delete vehicle with {len(active_trips)} active trips"
+            )
+        
+        if permanent:
+            # Жесткое удаление
+            logger.warning(f"Permanently deleting vehicle {vehicle_id}")
+            return self._vehicles.delete(vehicle_id)
+        else:
+            # Мягкое удаление
+            logger.info(f"Soft deleting vehicle {vehicle_id}")
+            return self._vehicles.soft_delete(vehicle_id)
+    
+    def restore_vehicle(self, vehicle_id: int) -> VehicleResponse:
+        """Восстановление мягко удалённого ТС"""
+        
+        if not self._vehicles.exists(vehicle_id):
+            raise VehicleNotFoundError(vehicle_id)
+        
+        # Проверка, что ТС действительно удалено
+        vehicle = self._vehicles.get_by_id(vehicle_id)
+        if not vehicle.is_deleted:
+            raise BusinessRuleViolation(f"Vehicle {vehicle_id} is not deleted")
+        
+        self._vehicles.restore(vehicle_id)
+        logger.info(f"Vehicle {vehicle_id} restored")
+        return self._vehicles.get_by_id(vehicle_id)
+    
+    def get_vehicles(self, include_deleted: bool = False) -> List[VehicleResponse]:
+        """Получение списка ТС с опцией включения удалённых"""
+        return self._vehicles.get_all(include_deleted)
+
+B10. Приведите пример пагинации в репозитории и использования в сервисе.
+
+from typing import Optional, List, Generic, TypeVar
+from pydantic import BaseModel
+
+# Модель для пагинации
+class PaginationParams(BaseModel):
+    page: int = 1
+    size: int = 20
+    sort_by: Optional[str] = None
+    sort_desc: bool = False
+
+class Page(BaseModel, Generic[T]):
+    items: List[T]
+    page: int
+    size: int
+    total: int
+    total_pages: int
+    
+    @property
+    def has_next(self) -> bool:
+        return self.page < self.total_pages
+    
+    @property
+    def has_previous(self) -> bool:
+        return self.page > 1
+
+# Интерфейс репозитория с пагинацией
+class VehicleRepository(ABC):
+    @abstractmethod
+    def get_all_paginated(self, params: PaginationParams) -> Page[VehicleResponse]:
+        """Получение ТС с пагинацией"""
+        pass
+    
+    @abstractmethod
+    def find_by_status_paginated(self, status: str, params: PaginationParams) -> Page[VehicleResponse]:
+        """Поиск по статусу с пагинацией"""
+        pass
+
+# Реализация In-Memory с пагинацией
+class InMemoryVehicleRepository(VehicleRepository):
+    def get_all_paginated(self, params: PaginationParams) -> Page[VehicleResponse]:
+        items = list(self._vehicles.values())
+        
+        # Сортировка
+        if params.sort_by and params.sort_by in items[0].keys():
+            items.sort(
+                key=lambda x: x[params.sort_by],
+                reverse=params.sort_desc
+            )
+        
+        # Пагинация
+        total = len(items)
+        start = (params.page - 1) * params.size
+        end = start + params.size
+        paginated = items[start:end]
+        
+        return Page(
+            items=[self._to_response(item) for item in paginated],
+            page=params.page,
+            size=params.size,
+            total=total,
+            total_pages=(total + params.size - 1) // params.size
+        )
+    
+    def find_by_status_paginated(self, status: str, params: PaginationParams) -> Page[VehicleResponse]:
+        items = [v for v in self._vehicles.values() if v['status'] == status]
+        
+        # Сортировка
+        if params.sort_by and params.sort_by in items[0].keys():
+            items.sort(
+                key=lambda x: x[params.sort_by],
+                reverse=params.sort_desc
+            )
+        
+        # Пагинация
+        total = len(items)
+        start = (params.page - 1) * params.size
+        end = start + params.size
+        paginated = items[start:end]
+        
+        return Page(
+            items=[self._to_response(item) for item in paginated],
+            page=params.page,
+            size=params.size,
+            total=total,
+            total_pages=(total + params.size - 1) // params.size
+        )
+
+# Сервисный слой
+class AutoparkService:
+    def get_vehicles(self, page: int = 1, size: int = 20, 
+                     status: Optional[str] = None,
+                     sort_by: str = "id", 
+                     sort_desc: bool = False) -> Page[VehicleResponse]:
+        """Получение ТС с пагинацией и фильтрацией"""
+        
+        params = PaginationParams(
+            page=page,
+            size=size,
+            sort_by=sort_by,
+            sort_desc=sort_desc
+        )
+        
+        if status:
+            return self._vehicles.find_by_status_paginated(status, params)
+        else:
+            return self._vehicles.get_all_paginated(params)
+    
+    def get_vehicles_due_for_maintenance_paginated(self, page: int = 1, size: int = 20) -> Page[VehicleResponse]:
+        """Получение ТС, требующих ТО, с пагинацией"""
+        
+        # Получаем все ТС, требующие ТО
+        due_vehicles = self.get_vehicles_due_for_maintenance()
+        
+        # Пагинация вручную (или через репозиторий)
+        total = len(due_vehicles)
+        start = (page - 1) * size
+        end = start + size
+        paginated = due_vehicles[start:end]
+        
+        return Page(
+            items=paginated,
+            page=page,
+            size=size,
+            total=total,
+            total_pages=(total + size - 1) // size
+        )
+
+# Использование в контроллере
+@app.get("/vehicles")
+def get_vehicles(
+    page: int = 1,
+    size: int = 20,
+    status: Optional[str] = None,
+    sort_by: str = "id",
+    sort_desc: bool = False,
+    service: AutoparkService = Depends(get_service)
+):
+    page_result = service.get_vehicles(
+        page=page,
+        size=size,
+        status=status,
+        sort_by=sort_by,
+        sort_desc=sort_desc
+    )
+    
+    return {
+        "items": page_result.items,
+        "pagination": {
+            "page": page_result.page,
+            "size": page_result.size,
+            "total": page_result.total,
+            "total_pages": page_result.total_pages,
+            "has_next": page_result.has_next,
+            "has_previous": page_result.has_previous
+        }
+    }
